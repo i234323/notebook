@@ -4,7 +4,6 @@ import os
 import configparser
 import random
 
-
 # Константы
 CONFIG_FILE = "TCD.ini"
 
@@ -34,12 +33,13 @@ class TCDNotepad:
 
         # Создание компонентов интерфейса
         self.create_widgets()
+        self.create_context_menu()
         self.root.bind("<KeyPress>", self.key_handler)
-
+        self.text_area.bind("<Button-3>", self.show_context_menu)
 
     def create_widgets(self):
         # Текстовое поле
-        self.text_area = tk.Text(self.root, wrap=tk.WORD)
+        self.text_area = tk.Text(self.root, wrap=tk.WORD, undo=True)
         self.text_area.pack(expand=1, fill=tk.BOTH)
 
         # Строка состояния
@@ -64,8 +64,10 @@ class TCDNotepad:
 
         # Меню "Правка"
         edit_menu = tk.Menu(menu_bar, tearoff=0)
-        edit_menu.add_command(label="Копировать", command=lambda: self.root.event_generate("<<Copy>>"))
-        edit_menu.add_command(label="Вставить", command=lambda: self.root.event_generate("<<Paste>>"))
+        edit_menu.add_command(label="Копировать", command=self.copy_text)
+        edit_menu.add_command(label="Вставить", command=self.paste_text)
+        edit_menu.add_command(label="Вырезать", command=self.cut_text)
+        edit_menu.add_command(label="Выделить всё", command=self.select_all_text)
         edit_menu.add_command(label="Параметры", command=self.edit_parameters)
         menu_bar.add_cascade(label="Правка", menu=edit_menu)
 
@@ -75,22 +77,56 @@ class TCDNotepad:
         help_menu.add_command(label="О программе", command=self.show_about)
         menu_bar.add_cascade(label="Справка", menu=help_menu)
 
+    def create_context_menu(self):
+        # Контекстное меню (правая кнопка мыши)
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="Копировать", command=self.copy_text)
+        self.context_menu.add_command(label="Вырезать", command=self.cut_text)
+        self.context_menu.add_command(label="Вставить", command=self.paste_text)
+        self.context_menu.add_command(label="Выделить всё", command=self.select_all_text)
+
+    def show_context_menu(self, event):
+        # Показать контекстное меню
+        self.context_menu.post(event.x_root, event.y_root)
 
     def key_handler(self, event):
-        if event.state == 4:
-            if event.keycode == 83:
+        if event.state == 4:  # Ctrl нажат
+            if event.keycode == 83:  # Ctrl+S
                 self.save_file()
-            elif event.keycode == 78:
+            elif event.keycode == 78:  # Ctrl+N
                 self.new_file()
-            elif event.keycode == 79:
+            elif event.keycode == 79:  # Ctrl+O
                 self.open_file()
-            elif event.keycode == 81:
+            elif event.keycode == 81:  # Ctrl+Q
                 self.root.quit()
-            elif event.keycode == 122:
-                self.show_about()
+            elif event.keycode == 67:  # Ctrl+C
+                self.copy_text()
+            elif event.keycode == 86:  # Ctrl+V
+                self.paste_text()
+            elif event.keycode == 88:  # Ctrl+X
+                self.cut_text()
+            elif event.keycode == 65:  # Ctrl+A
+                self.select_all_text()
+            elif event.keycode == 122:  # Ctrl+Z
+                self.text_area.edit_undo()
         else:
-            if event.keycode == 112:
-                self.show_about()
+            if event.keycode == 112:  # F1
+                self.show_help()
+
+    # Операции с текстом
+    def copy_text(self):
+        self.text_area.event_generate("<<Copy>>")
+
+    def paste_text(self):
+        self.text_area.event_generate("<<Paste>>")
+
+    def cut_text(self):
+        self.text_area.event_generate("<<Cut>>")
+
+    def select_all_text(self):
+        self.text_area.tag_add("sel", "1.0", "end")
+        self.status.set("Выделен весь текст.")
+
     # Операции с файлами
     def new_file(self):
         self.text_area.delete(1.0, tk.END)
@@ -111,7 +147,7 @@ class TCDNotepad:
                 self.text_area.insert(tk.END, decrypted_content)
                 self.filename = file_path
                 self.status.set(f"Открыт файл {os.path.basename(file_path)}")
-            except Exception as e:
+            except Exception:
                 messagebox.showerror("Ошибка", "Не удалось расшифровать содержимое файла.")
 
     def save_file(self):
@@ -128,23 +164,20 @@ class TCDNotepad:
             self.write_to_file(file_path)
 
     def write_to_file(self, file_path):
-        # Генерируем случайный ключ длиной 10 символов, состоящий из цифр
         random_key = ''.join(random.choices("0123456789", k=10))
-        final_key = (self.key + int(random_key)) % 256 # Итоговый ключ для шифрования
-
+        final_key = (self.key + int(random_key)) % 256
         encrypted_content = xor_encrypt_decrypt(self.text_area.get(1.0, tk.END).strip(), final_key)
 
         config = configparser.ConfigParser()
         config["main"] = {
-            "keyopen": random_key,  # Сохраняем случайный ключ
-            "mess": encrypted_content  # Сохраняем зашифрованное сообщение
+            "keyopen": random_key,
+            "mess": encrypted_content
         }
         with open(file_path, "w", encoding="utf-8") as file:
             config.write(file)
 
         self.status.set(f"Файл {os.path.basename(file_path)} сохранён.")
 
-    # Изменение параметров
     def edit_parameters(self):
         new_key = simpledialog.askinteger("Изменение ключа", "Введите новый числовой ключ шифрования:")
         if new_key:
@@ -154,7 +187,6 @@ class TCDNotepad:
                 self.config.write(file)
             self.status.set("Ключ шифрования успешно обновлён.")
 
-    # Модальные окна справки
     @staticmethod
     def show_help():
         messagebox.showinfo("Содержание", "Это Блокнот TCD с функцией шифрования/дешифрования.")
@@ -166,8 +198,8 @@ class TCDNotepad:
                                            "Кузнецова Татьяна Горгиевна\n"
                                            "Кузнецов Олег Степанович")
 
-# Основное приложение
 if __name__ == "__main__":
     root = tk.Tk()
+    root.iconbitmap("icon.ico")
     app = TCDNotepad(root)
     root.mainloop()
